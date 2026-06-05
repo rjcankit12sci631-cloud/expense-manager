@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>{{ item[1] }}</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-light">
+
+<div class="container mt-4">
+
+    <a href="/" class="btn btn-secondary mb-3">
+        Back
+    </a>
+
+    <div class="card shadow-sm mb-4">
+
+        <div class="card-body">
+
+            <h1>{{ item[1] }}</h1>
+
+            <hr>
+
+            <h5>
+                Cost:
+                {% if item[2] %}
+                    ₹{{ item[2]|inr }}
+                {% else %}
+                    Not Set
+                {% endif %}
+            </h5>
+
+            <h5>
+                Paid: ₹{{ paid|inr }}
+            </h5>
+
+            <h5>
+                Remaining:
+                {% if remaining is none %}
+                    Unknown
+                {% else %}
+                    ₹{{ remaining|inr }}
+                {% endif %}
+            </h5>
+
+        </div>
+
+    </div>
+
+    <div class="mb-3">
+
+        <a
+            href="/delete-item/{{ item[0] }}"
+            class="btn btn-danger"
+            onclick="return confirm('Delete this item and all payment history?')">
+
+            Delete Item
+
+        </a>
+
+    </div>
+
+    <!-- Update Cost -->
+    <div class="card shadow-sm mb-4">
+
+        <div class="card-header">
+            Rename Item
+        </div>
+
+        <div class="card-body">
+
+            <form action="/update-name/{{ item[0] }}" method="POST">
+
+                <div class="row">
+
+                    <div class="col-md-8">
+                        <input
+                            type="text"
+                            name="name"
+                            class="form-control"
+                            value="{{ item[1] }}"
+                            required>
+                    </div>
+
+                    <div class="col-md-4">
+                        <button
+                            type="submit"
+                            class="btn btn-primary w-100">
+                            Rename
+                        </button>
+                    </div>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+    <div class="card shadow-sm mb-4">
+
+        <div class="card-header">
+            Notes
+        </div>
+
+        <div class="card-body">
+
+            <form
+                action="/update-notes/{{ item[0] }}"
+                method="POST">
+
+                <textarea
+                    name="notes"
+                    class="form-control"
+                    rows="5"
+                    placeholder="Enter notes...">{{ item[3] if item[3] else '' }}</textarea>
+
+                <br>
+
+                <button
+                    type="submit"
+                    class="btn btn-primary">
+
+                    Save Notes
+
+                </button>
+
+            </form>
+
+        </div>
+
+    </div>
+
+    <div class="card shadow-sm mb-4">
+
+        <div class="card-header">
+            Set Total Cost
+        </div>
+
+        <div class="card-body">
+
+            <form action="/update-cost/{{ item[0] }}" method="POST">
+
+                <div class="row">
+
+                    <div class="col-md-8">
+
+                        <input
+                            type="number"
+                            step="0.01"
+                            name="cost"
+                            class="form-control"
+                            placeholder="Enter total cost">
+
+                    </div>
+
+                    <div class="col-md-4">
+
+                        <button
+                            type="submit"
+                            class="btn btn-warning w-100">
+                            Update
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+    <!-- Add Payment -->
+
+    <div class="card shadow-sm mb-4">
+
+        <div class="card-header">
+            Add Payment
+        </div>
+
+        <div class="card-body">
+
+            <form
+                action="/add-payment/{{ item[0] }}"
+                method="POST">
+
+                <div class="row">
+
+                    <div class="col-md-4 mb-2">
+
+                        <input
+                            type="number"
+                            step="0.01"
+                            name="amount"
+                            class="form-control"
+                            placeholder="Amount"
+                            required>
+
+                    </div>
+
+                    <div class="col-md-5 mb-2">
+
+                        <input
+                            type="text"
+                            name="note"
+                            class="form-control"
+                            placeholder="Advance / EMI / Final Payment">
+
+                    </div>
+
+                    <div class="col-md-3 mb-2">
+
+                        <button
+                            type="submit"
+                            class="btn btn-success w-100">
+                            Add
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+    <!-- Payment History -->
+
+    <div class="card shadow-sm">
+
+        <div class="card-header">
+            Payment History
+        </div>
+
+        <div class="card-body">
+
+            <div class="table-responsive">
+
+                <table class="table table-striped">
+
+                    <tr>
+                        <th>Date</th>
+                        <th>Amount</th>
+                        <th>Note</th>
+                        <th>Action</th>
+                    </tr>
+
+                    {% for payment in payments %}
+
+                    <tr>
+
+                        <td>{{ payment[2] }}</td>
+
+                        <td>
+                            ₹{{ payment[1]|inr }}
+                        </td>
+
+                        <td>
+                            {{ payment[3] }}
+                        </td>
+
+                        <td>
+
+                            <a
+                                href="/delete-payment/{{ payment[0] }}/{{ item[0] }}"
+                                class="btn btn-danger btn-sm"
+                                onclick="return confirm('Delete this payment?')">
+
+                                Delete
+
+                            </a>
+
+                        </td>
+
+                    </tr>
+
+                    {% endfor %}
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>
