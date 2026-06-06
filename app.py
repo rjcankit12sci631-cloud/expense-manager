@@ -1,7 +1,14 @@
 from flask import Flask, render_template, request, redirect, session
-import sqlite3
+import os
+import psycopg2
 
 app = Flask(__name__)
+
+def get_db_connection():
+
+    return psycopg2.connect(
+        "postgresql://postgres.mpsbrlwpxiqukuezjspj:Shadi27Feb02@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
+    )
 
 app.secret_key = "wedding-secret-key"
 
@@ -18,54 +25,9 @@ def inr_format(value):
 
     return f"{value:,.0f}"
 
-
-def init_db():
-    conn = sqlite3.connect("wedding.db")
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        cost REAL
-    )
-    """)
-
-    try:
-        cursor.execute(
-            "ALTER TABLE items ADD COLUMN notes TEXT"
-        )
-    except:
-        pass
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        item_id INTEGER,
-        amount REAL NOT NULL,
-        payment_date TEXT,
-        note TEXT
-    )
-    """)
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS activity_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        action TEXT,
-        created_at TEXT
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-init_db()
-
 def log_activity(username, action):
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
@@ -76,9 +38,9 @@ def log_activity(username, action):
             created_at
         )
         VALUES(
-            ?,
-            ?,
-            datetime('now')
+            %s,
+            %s,
+            NOW() AT TIME ZONE 'Asia/Kolkata'
         )
         """,
         (username, action)
@@ -104,7 +66,7 @@ def home():
     if "username" not in session:
         return redirect("/login")
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -117,11 +79,11 @@ def home():
     FROM items i
     LEFT JOIN payments p
         ON i.id = p.item_id
-    GROUP BY i.id
+    GROUP BY i.id, i.name, i.cost, i.notes
+    ORDER BY i.id
     """)
 
     rows = cursor.fetchall()
-    conn.close()
 
     items = []
 
@@ -131,7 +93,10 @@ def home():
         name = row[1]
         cost = row[2]
         notes = row[3]
-        paid = row[4]
+        paid = float(row[4])
+
+        if cost is not None:
+            cost = float(cost)
 
         if cost is None:
             remaining = None
@@ -164,24 +129,38 @@ def home():
     total_paid = 0
 
     for item in items:
+
         total_paid += item["paid"]
 
         if item["cost"] is not None:
             total_cost += item["cost"]
-        
+
     total_remaining = total_cost - total_paid
 
-    conn = sqlite3.connect("wedding.db")
-    cursor = conn.cursor()
-
     cursor.execute("""
-    SELECT username, action, created_at
+    SELECT
+        username,
+        action,
+        created_at
     FROM activity_log
     ORDER BY id DESC
     LIMIT 10
     """)
 
     activities = cursor.fetchall()
+
+    formatted_activities = []
+
+    for activity in activities:
+        formatted_activities.append(
+            (
+                activity[0],
+                activity[1],
+                activity[2].strftime("%d-%m-%Y %I:%M %p")
+            )
+        )
+
+    activities = formatted_activities
 
     conn.close()
 
@@ -211,11 +190,11 @@ def add_item():
     else:
         cost = float(cost_input)
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "INSERT INTO items(name, cost) VALUES (?, ?)",
+        "INSERT INTO items(name, cost) VALUES (%s, %s)",
         (name, cost)
     )
 
@@ -236,11 +215,19 @@ def item_details(item_id):
     if "username" not in session:
         return redirect("/login")
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT id, name, cost, notes FROM items WHERE id = ?",
+        """
+        SELECT
+            id,
+            name,
+            cost,
+            notes
+        FROM items
+        WHERE id = %s
+        """,
         (item_id,)
     )
 
@@ -258,7 +245,7 @@ def item_details(item_id):
             payment_date,
             note
         FROM payments
-        WHERE item_id = ?
+        WHERE item_id = %s
         ORDER BY id DESC
         """,
         (item_id,)
@@ -266,12 +253,15 @@ def item_details(item_id):
 
     payments = cursor.fetchall()
 
-    paid = sum(payment[1] for payment in payments)
+    paid = 0
+
+    for payment in payments:
+        paid += float(payment[1])
 
     if item[2] is None:
         remaining = None
     else:
-        remaining = item[2] - paid
+        remaining = float(item[2]) - paid
 
     conn.close()
 
@@ -293,7 +283,7 @@ def add_payment(item_id):
     amount = float(request.form["amount"])
     note = request.form["note"]
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
@@ -304,7 +294,12 @@ def add_payment(item_id):
             payment_date,
             note
         )
-        VALUES (?, ?, date('now'), ?)
+        VALUES (
+            %s,
+            %s,
+            CURRENT_DATE,
+            %s
+        )
         """,
         (item_id, amount, note)
     )
@@ -332,18 +327,18 @@ def update_cost(item_id):
     else:
         cost = float(cost_input)
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT name, cost FROM items WHERE id = ?",
+        "SELECT name, cost FROM items WHERE id = %s",
         (item_id,)
     )
 
     item = cursor.fetchone()
 
     cursor.execute(
-        "UPDATE items SET cost = ? WHERE id = ?",
+        "UPDATE items SET cost = %s WHERE id = %s",
         (cost, item_id)
     )
 
@@ -363,18 +358,18 @@ def delete_payment(payment_id, item_id):
     if "username" not in session:
         return redirect("/login")
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT amount FROM payments WHERE id = ?",
+        "SELECT amount FROM payments WHERE id = %s",
         (payment_id,)
     )
 
     payment = cursor.fetchone()
 
     cursor.execute(
-        "DELETE FROM payments WHERE id = ?",
+        "DELETE FROM payments WHERE id = %s",
         (payment_id,)
     )
 
@@ -383,12 +378,12 @@ def delete_payment(payment_id, item_id):
 
     log_activity(
         session["username"],
-        f"Deleted payment ₹{payment[0]}"
+        f"Deleted payment ₹{float(payment[0]):,.0f}"
     )
 
     return redirect(f"/item/{item_id}")
 
-@app.route("/update-name/<int:item_id>", methods=["POST"])
+
 @app.route("/update-name/<int:item_id>", methods=["POST"])
 def update_name(item_id):
 
@@ -397,18 +392,18 @@ def update_name(item_id):
 
     name = request.form["name"]
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT name FROM items WHERE id = ?",
+        "SELECT name FROM items WHERE id = %s",
         (item_id,)
     )
 
     old_name = cursor.fetchone()[0]
 
     cursor.execute(
-        "UPDATE items SET name = ? WHERE id = ?",
+        "UPDATE items SET name = %s WHERE id = %s",
         (name, item_id)
     )
 
@@ -428,23 +423,23 @@ def delete_item(item_id):
     if "username" not in session:
         return redirect("/login")
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT name FROM items WHERE id = ?",
+        "SELECT name FROM items WHERE id = %s",
         (item_id,)
     )
 
     item = cursor.fetchone()
 
     cursor.execute(
-        "DELETE FROM payments WHERE item_id = ?",
+        "DELETE FROM payments WHERE item_id = %s",
         (item_id,)
     )
 
     cursor.execute(
-        "DELETE FROM items WHERE id = ?",
+        "DELETE FROM items WHERE id = %s",
         (item_id,)
     )
 
@@ -466,18 +461,18 @@ def update_notes(item_id):
 
     notes = request.form["notes"]
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT name FROM items WHERE id = ?",
+        "SELECT name FROM items WHERE id = %s",
         (item_id,)
     )
 
     item = cursor.fetchone()
 
     cursor.execute(
-        "UPDATE items SET notes = ? WHERE id = ?",
+        "UPDATE items SET notes = %s WHERE id = %s",
         (notes, item_id)
     )
 
@@ -497,10 +492,12 @@ def clear_activity():
     if "username" not in session:
         return redirect("/login")
 
-    conn = sqlite3.connect("wedding.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM activity_log")
+    cursor.execute(
+        "DELETE FROM activity_log"
+    )
 
     conn.commit()
     conn.close()
@@ -513,6 +510,26 @@ def logout():
     session.clear()
 
     return redirect("/login")
+
+@app.route("/db-test")
+def db_test():
+
+    try:
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT version();")
+
+        version = cursor.fetchone()
+
+        conn.close()
+
+        return f"Connected! {version}"
+
+    except Exception as e:
+
+        return f"ERROR: {e}"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
